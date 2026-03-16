@@ -165,17 +165,12 @@ EOF
 # mkinitcpio preset file to generate UKIs
 ALL_config="/etc/mkinitcpio.conf"
 ALL_kver="/boot/vmlinuz-linux"
-ALL_microcode=(/boot/*-ucode.img)
 
 PRESETS=('default' 'fallback')
 
-#default_config="/etc/mkinitcpio.conf"
-#default_image="/boot/initramfs-linux.img"
 default_uki="/efi/EFI/Linux/arch-linux.efi"
 default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
 
-#fallback_config="/etc/mkinitcpio.conf"
-#fallback_image="/boot/initramfs-linux-fallback.img"
 fallback_uki="/efi/EFI/Linux/arch-linux-fallback.efi"
 fallback_options="-S autodetect"
 EOF
@@ -288,8 +283,9 @@ LUKS_DEV="${PART_ROOT}"
 FLAG=/var/lib/tpm2-reenroll-pending
 TPM2_PCRS="${TPM2_PCRS}"
 
-systemd-cryptenroll "\${LUKS_DEV}" --wipe-slot=tpm2
-systemd-cryptenroll "\${LUKS_DEV}" --tpm2-device=auto --tpm2-pcrs="\${TPM2_PCRS}"
+
+systemd-cryptenroll "${LUKS_DEV}" --tpm2-device=auto --tpm2-pcrs="${TPM2_PCRS}"
+systemd-cryptenroll "${LUKS_DEV}" --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs="${TPM2_PCRS}"
 rm -f "\${FLAG}"
 systemctl disable tpm2-reenroll-boot.service
 echo "TPM2 re-enrollment complete (PCRs \${TPM2_PCRS})."

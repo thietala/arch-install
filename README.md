@@ -5,6 +5,11 @@ keys, and TPM2 auto-unlock. After setup, the disk unlocks automatically on every
 with no passphrase prompt — as long as the firmware, Secure Boot keys, and kernel have
 not changed.
 
+>Based on Walians installation guide with some tweaks.
+>https://walian.co.uk/arch-install-with-secure-boot-btrfs-tpm2-luks-encryption-unified-kernel-images.html
+
+> This is mostly just for my own personal use, I have no plans to update it to be more than what it is. Though I might update it to fit my own different needs in the future. Only sharing it here to easily download it on my PC when re-installing my arch setup. Perhaps someone else might find it useful.
+
 ---
 
 ## What this sets up
@@ -61,7 +66,7 @@ sudo pacman -S qemu-system-x86_64 swtpm edk2-ovmf
 Download the latest ISO from [archlinux.org/download](https://archlinux.org/download/)
 and place it in this directory.
 
-### 2. Create the VM environment (once)
+### 2. Create the VM environment
 
 ```bash
 bash test-qemu.sh setup

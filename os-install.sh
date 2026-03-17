@@ -6,6 +6,12 @@
 
 set -euo pipefail
 
+USERNAME="test"
+LOCALE="en_GB.UTF-8"           # primary locale (used for LANG)
+EXTRA_LOCALES=(
+    "en_US.UTF-8"              # required by Steam
+)
+REFLECTOR_COUNTRY="FI"
 DRIVE="/dev/nvme0n1"
 PART_EFI="${DRIVE}p1"
 PART_ROOT="${DRIVE}p2"
@@ -51,6 +57,16 @@ run() {
     "$@"
 }
 
+prompt_reboot() {
+    local cmd="$1"
+    read -rp "Reboot now? [Y/n] " _reboot_confirm || true
+    if [[ ! "${_reboot_confirm}" =~ ^[Nn]$ ]]; then
+        $cmd
+    else
+        echo "Skipping reboot. Remember to reboot manually."
+    fi
+}
+
 verify_commands() {
     read -rp "Confirm each command before executing? [y/N] " _confirm_mode || true
     if [[ "${_confirm_mode}" =~ ^[Yy]$ ]]; then
@@ -62,7 +78,7 @@ confirm_config() {
     echo "==> Installation configuration"
     echo "  Drive:       ${DRIVE}"
     echo "  Username:    ${USERNAME}"
-    echo "  Locale:      ${LOCALE}"
+    echo "  Locale:      ${LOCALE} (+ ${EXTRA_LOCALES[*]})"
     echo "  Mirrors:     ${REFLECTOR_COUNTRY}"
     echo "  TPM2 PCRs:   ${TPM2_PCRS}"
     echo "  Keymap / timezone / hostname: prompted next"
@@ -75,11 +91,25 @@ phase_install() {
 
     verify_commands
 
-    read -rp "Username: " USERNAME
-    read -rp "Locale (e.g. fi_FI.UTF-8, en_US.UTF-8): " LOCALE
-    read -rp "Mirror country (two-letter code, e.g. FI, DE, GB): " REFLECTOR_COUNTRY
+    #read -rp "Username: " USERNAME
+    #read -rp "Locale (e.g. fi_FI.UTF-8, en_US.UTF-8): " LOCALE
+    #read -rp "Mirror country (two-letter code, e.g. FI, DE, GB): " REFLECTOR_COUNTRY
     confirm_config
     echo "==> Phase 1: Installation (live ISO)"
+
+    # ── Secure drive wipe ──────────────────────────────────────────────────
+    echo "--- Secure wipe (dm-crypt) ---"
+    echo "    Overwrites ${DRIVE} with encrypted zeros, making it indistinguishable"
+    echo "    from random data. Can take a long time on large drives."
+    read -rp "Wipe ${DRIVE} now? [y/N] " _wipe_confirm
+    if [[ "${_wipe_confirm}" =~ ^[Yy]$ ]]; then
+        run cryptsetup open --type plain --key-file /dev/urandom --sector-size 4096 "${DRIVE}" to_be_wiped
+        run dd if=/dev/zero of=/dev/mapper/to_be_wiped status=progress bs=1M || true
+        run cryptsetup close to_be_wiped
+        echo "--- Wipe complete ---"
+    else
+        echo "    Skipping wipe."
+    fi
 
     # ── Disk partitioning ──────────────────────────────────────────────────
     echo "--- Partitioning ${DRIVE} ---"
@@ -123,21 +153,27 @@ phase_install() {
         --sort rate \
         --save /etc/pacman.d/mirrorlist
 
+    # ── Keymap + hostname (before pacstrap so mkinitcpio finds vconsole.conf) ─
+    echo "--- Configuring keymap and hostname (interactive) ---"
+    mkdir -p /mnt/etc
+    run systemd-firstboot --root=/mnt \
+        --prompt-keymap \
+        --prompt-hostname
+
     echo "--- Installing base system ---"
     run pacstrap -K /mnt "${PACKAGES[@]}"
 
-    # ── Locale ────────────────────────────────────────────────────────────
+    # ── Locale + timezone ─────────────────────────────────────────────────
     echo "--- Configuring locale ---"
     echo "LANG=${LOCALE}" > /mnt/etc/locale.conf
     sed -i -e "/^#${LOCALE}/s/^#//" /mnt/etc/locale.gen
+    for extra in "${EXTRA_LOCALES[@]}"; do
+        sed -i -e "/^#${extra}/s/^#//" /mnt/etc/locale.gen
+    done
     arch-chroot /mnt locale-gen
 
-    # ── Keymap, timezone, hostname ────────────────────────────────────────
-    echo "--- Configuring keymap, timezone, hostname (interactive) ---"
-    run systemd-firstboot --root=/mnt \
-        --prompt-keymap \
-        --prompt-timezone \
-        --prompt-hostname
+    echo "--- Configuring timezone (interactive) ---"
+    run systemd-firstboot --root=/mnt --prompt-timezone
 
     arch-chroot /mnt hwclock --systohc
 
@@ -193,7 +229,7 @@ EOF
     echo "    After enabling Setup Mode in UEFI, boot into the new system and run:"
     echo "      bash os-install.sh secureboot"
     run sync
-    run systemctl reboot --firmware-setup
+    prompt_reboot "systemctl reboot --firmware-setup"
 }
 
 phase_secureboot() {
@@ -227,7 +263,7 @@ phase_secureboot() {
     echo "    Rebooting — enter your LUKS passphrase this one last time."
     echo "    Once booted, run: bash os-install.sh tpm2"
     run sync
-    run reboot
+    prompt_reboot "reboot"
 }
 
 phase_tpm2() {
@@ -250,9 +286,13 @@ phase_tpm2() {
     echo "--- Current LUKS slots on ${PART_ROOT} ---"
     run sudo systemd-cryptenroll "${PART_ROOT}"
 
-    echo "--- TPM2: Generating recovery key (save this somewhere safe!) ---"
-    echo "    You will be prompted for your existing LUKS passphrase to authorise this."
-    run sudo systemd-cryptenroll "${PART_ROOT}" --recovery-key
+    if ! sudo systemd-cryptenroll "${PART_ROOT}" | grep -q recovery; then
+        echo "--- TPM2: Generating recovery key (save this somewhere safe!) ---"
+        echo "    You will be prompted for your existing LUKS passphrase to authorise this."
+        run sudo systemd-cryptenroll "${PART_ROOT}" --recovery-key
+    else
+        echo "--- TPM2: Recovery key already enrolled, skipping ---"
+    fi
 
     echo "--- TPM2: Enrolling with PCRs ${TPM2_PCRS} ---"
     echo "    You will be prompted for your existing LUKS passphrase again."
@@ -270,47 +310,23 @@ phase_tpm2() {
 
     echo "==> TPM2 enrollment complete."
     echo "    Reboot — disk should unlock automatically via TPM2 (no passphrase prompt)."
+    prompt_reboot "systemctl reboot"
 }
 
 install_auto_reenroll() {
     # ── Re-enrollment script ───────────────────────────────────────────────
-    # Runs at boot after a kernel update; PCR 11 already reflects the new UKI
-    # at this point, so sealing against it here binds to the correct binary.
     sudo tee /usr/local/bin/tpm2-reenroll > /dev/null <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 LUKS_DEV="${PART_ROOT}"
-FLAG=/var/lib/tpm2-reenroll-pending
 TPM2_PCRS="${TPM2_PCRS}"
 
-
-systemd-cryptenroll "${LUKS_DEV}" --tpm2-device=auto --tpm2-pcrs="${TPM2_PCRS}"
-systemd-cryptenroll "${LUKS_DEV}" --wipe-slot=tpm2 --tpm2-device=auto --tpm2-pcrs="${TPM2_PCRS}"
-rm -f "\${FLAG}"
-systemctl disable tpm2-reenroll-boot.service
+echo "You will be prompted for your LUKS passphrase to authorize re-enrollment."
+systemd-cryptenroll "\${LUKS_DEV}" --wipe-slot=tpm2
+systemd-cryptenroll "\${LUKS_DEV}" --tpm2-device=auto --tpm2-pcrs="\${TPM2_PCRS}"
 echo "TPM2 re-enrollment complete (PCRs \${TPM2_PCRS})."
 EOF
     run sudo chmod +x /usr/local/bin/tpm2-reenroll
-
-    # ── Systemd one-shot boot service ──────────────────────────────────────
-    # Enabled by the pacman hook; disables itself after running once.
-    sudo tee /etc/systemd/system/tpm2-reenroll-boot.service > /dev/null <<'EOF'
-[Unit]
-Description=TPM2 LUKS re-enrollment after kernel update
-Documentation=man:systemd-cryptenroll(1)
-ConditionPathExists=/var/lib/tpm2-reenroll-pending
-# Must run after LUKS is open so /dev/gpt-auto-root-luks exists
-After=cryptsetup.target
-Before=multi-user.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/tpm2-reenroll
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
 
     # ── Pacman hook ────────────────────────────────────────────────────────
     # Fires after the 'linux' package is installed or upgraded.
@@ -323,13 +339,12 @@ Type = Package
 Target = linux
 
 [Action]
-Description = Scheduling TPM2 re-enrollment for next boot (PCR 11 will change)...
+Description = Kernel updated — reboot then run: sudo tpm2-reenroll
 When = PostTransaction
-Exec = /bin/sh -c 'touch /var/lib/tpm2-reenroll-pending && systemctl enable tpm2-reenroll-boot.service'
+Exec = /usr/bin/echo "==> TPM2: kernel updated, PCR 11 will change. Reboot then run: sudo tpm2-reenroll"
 EOF
 
     echo "    Installed: /usr/local/bin/tpm2-reenroll"
-    echo "    Installed: /etc/systemd/system/tpm2-reenroll-boot.service"
     echo "    Installed: /etc/pacman.d/hooks/tpm2-reenroll.hook"
 }
 

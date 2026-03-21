@@ -53,14 +53,14 @@ PACKAGES=(
 
     # Hyprland ecosystem
     hyprland
-    waybar
     hyprpaper
     hypridle
     hyprlock
     hyprpolkitagent
-    hyprlauncher
-    mako                        # notifications
-    ly
+    swaync                      # notifications
+    sddm                        # Login manager
+    rofi
+    quickshell
 
     # Terminal
     kitty
@@ -78,6 +78,9 @@ PACKAGES=(
     clamav
     github-cli
     usbguard
+    bluez
+    bluez-utils
+    blueman                     # Bluetooth GUI manager + tray applet
 
     # keyring
     gnome-keyring
@@ -87,6 +90,7 @@ PACKAGES=(
 
     # Display / Wayland utilities
     wl-clipboard
+    xdg-desktop-portal-gtk
     xdg-desktop-portal-hyprland
     xdg-user-dirs
 
@@ -97,6 +101,8 @@ PACKAGES=(
     rsync                       # lf paste-progress
     cifs-utils                  # SMB/Samba mounts
     unzip
+    unrar
+    p7zip
     poppler                     # pdftotext for lf pdf preview
 
     # Media
@@ -111,12 +117,16 @@ PACKAGES=(
     qt6ct
     qt5-wayland
     qt6-wayland
+    kvantum
+    adw-gtk-theme
 
     # Fonts
     ttf-jetbrains-mono-nerd     # coding font with icons (kitty + lf)
     ttf-nerd-fonts-symbols      # standalone Nerd Font symbols (waybar icons)
     ttf-nerd-fonts-symbols-mono # monospace variant for terminals
     ttf-font-awesome            # Font Awesome (waybar fallback icons)
+    papirus-icon-theme
+
 
     # Screenshot
     grim
@@ -127,6 +137,8 @@ PACKAGES=(
 
     # Gaming
     steam
+
+    flatpak
 )
 
 prompt_install() {
@@ -163,6 +175,23 @@ prompt_install "pacman" sudo pacman -- "${PACKAGES[@]}"
 run sudo pacman -S --needed $(pacman -Ssq noto-fonts)
 run sudo pacman -S --needed $(pacman -Ssq adobe-source-han)
 
+# ── Flatpak ─────────────────────────────────────────────────────────────────────
+FLATPAK_APPS=(
+    com.github.iwalton3.jellyfin-media-player
+    tv.plex.PlexDesktop
+    com.plexamp.Plexamp
+)
+
+run flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+_installed_flatpaks=$(flatpak list --app --columns=application 2>/dev/null)
+for _app in "${FLATPAK_APPS[@]}"; do
+    if echo "$_installed_flatpaks" | grep -qx "$_app"; then
+        echo "flatpak: $_app already installed, skipping"
+    else
+        run flatpak install --noninteractive flathub "$_app"
+    fi
+done
+
 # ── AUR (yay) ──────────────────────────────────────────────────────────────────
 if ! command -v yay &>/dev/null; then
     echo "Installing yay..."
@@ -184,7 +213,8 @@ prompt_install "yay" yay -- "${AUR_PACKAGES[@]}"
 # ── Services ───────────────────────────────────────────────────────────────────
 run sudo systemctl enable --now NetworkManager
 run sudo systemctl enable --now firewalld
-run sudo systemctl enable ly@tty2.service
+run sudo systemctl enable --now bluetooth
+run sudo systemctl enable --now sddm
 
 # ── ClamAV ─────────────────────────────────────────────────────────────────────
 # Remove the 'Example' line that prevents services from starting
@@ -209,9 +239,9 @@ else
 fi
 
 # ── gnome-keyring ──────────────────────────────────────────────────────────────
-# PAM integration so keyring auto-unlocks on login via ly
-if ! grep -q 'pam_gnome_keyring' /etc/pam.d/ly 2>/dev/null; then
-    sudo tee -a /etc/pam.d/ly > /dev/null <<'EOF'
+# PAM integration so keyring auto-unlocks on login via sddm
+if ! grep -q 'pam_gnome_keyring' /etc/pam.d/sddm 2>/dev/null; then
+    sudo tee -a /etc/pam.d/sddm > /dev/null <<'EOF'
 auth     optional pam_gnome_keyring.so
 session  optional pam_gnome_keyring.so auto_start
 password optional pam_gnome_keyring.so
@@ -270,7 +300,7 @@ for entry in "${SMB_MOUNTS[@]}"; do
     smb_server=$(echo "$entry" | awk '{print $1}')
     smb_mount=$(echo "$entry" | awk '{print $2}')
     run sudo mkdir -p "$smb_mount"
-    fstab_entry="${smb_server} ${smb_mount} cifs credentials=${SMB_CREDENTIALS},uid=$(id -u),gid=$(id -g),_netdev,nofail 0 0"
+    fstab_entry="${smb_server} ${smb_mount} cifs credentials=${SMB_CREDENTIALS},uid=$(id -u),gid=$(id -g),_netdev,nofail,x-systemd.automount 0 0"
     if ! grep -qF "$smb_mount" /etc/fstab; then
         echo "$fstab_entry" | sudo tee -a /etc/fstab
         echo "Added SMB mount $smb_server -> $smb_mount to /etc/fstab"
@@ -314,4 +344,5 @@ fi
 run bash "$DOTFILES_DIR/install.sh"
 
 echo ""
+echo "Reminder to manually allow bluetooth for usb guard"
 echo "Setup complete. Log out and back in (or reboot) to start Hyprland."

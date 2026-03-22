@@ -45,6 +45,8 @@ PACKAGES=(
     # Build tools
     base-devel
     git
+    cmake
+    cpio
 
     # Graphics
     mesa
@@ -107,6 +109,7 @@ PACKAGES=(
 
     # Media
     vlc
+    vlc-plugins-all
     gwenview                    # image viewer (used in lf open)
     ffmpegthumbnailer           # video thumbnails in lf preview
 
@@ -191,6 +194,10 @@ for _app in "${FLATPAK_APPS[@]}"; do
         run flatpak install --noninteractive flathub "$_app"
     fi
 done
+
+# Qt-based flatpaks need explicit Wayland socket access (not granted by default)
+run flatpak override --user --socket=wayland tv.plex.PlexDesktop
+run flatpak override --user --socket=wayland com.plexamp.Plexamp
 
 # ── AUR (yay) ──────────────────────────────────────────────────────────────────
 if ! command -v yay &>/dev/null; then

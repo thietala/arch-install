@@ -66,6 +66,8 @@ PACKAGES=(
 
     # Terminal
     kitty
+    starship
+    btop
 
     # Audio
     pipewire

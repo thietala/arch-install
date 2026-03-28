@@ -55,7 +55,6 @@ PACKAGES=(
 
     # Hyprland ecosystem
     hyprland
-    hyprpaper
     hypridle
     hyprlock
     hyprpolkitagent
@@ -63,9 +62,13 @@ PACKAGES=(
     sddm                        # Login manager
     rofi
     quickshell
+    awww
+    hyprsunset                  # night light (used in quickshell)
 
     # Terminal
     kitty
+    starship
+    btop
 
     # Audio
     pipewire
@@ -83,6 +86,7 @@ PACKAGES=(
     bluez
     bluez-utils
     blueman                     # Bluetooth GUI manager + tray applet
+    android-file-transfer
 
     # keyring
     gnome-keyring
@@ -111,7 +115,9 @@ PACKAGES=(
     vlc
     vlc-plugins-all
     gwenview                    # image viewer (used in lf open)
+    ffmpeg                      # ffprobe used in set-wallpaper.sh
     ffmpegthumbnailer           # video thumbnails in lf preview
+    mkvtoolnix-gui
 
     # Browser
     firefox
@@ -134,6 +140,9 @@ PACKAGES=(
     # Screenshot
     grim
     slurp
+
+    # Editors
+    neovim
 
     # Better text preview in lf
     bat
@@ -209,10 +218,10 @@ fi
 
 AUR_PACKAGES=(
     hyprshutdown                # shutdown menu (used in hyprland.conf)
-    sweet-gtk-theme             # Sweet GTK theme (set in hyprland.conf)
-    sweet-cursor-theme          # Sweet cursor theme (HYPRCURSOR_THEME=Sweet)
+    vscodium                    # code editor (mimeapps + quickshell)
     ttf-all-the-icons
     wlogout                     # power menu (waybar power button)
+    makemkv
 )
 
 prompt_install "yay" yay -- "${AUR_PACKAGES[@]}"
@@ -244,6 +253,9 @@ else
     echo "  sudo sh -c 'usbguard generate-policy > /etc/usbguard/rules.conf'"
     echo "  sudo systemctl enable --now usbguard"
 fi
+
+# ── Kernel modules ─────────────────────────────────────────────────────────────
+run sudo sh -c 'echo sg > /etc/modules-load.d/sg.conf'   # SCSI generic (optical drives)
 
 # ── gnome-keyring ──────────────────────────────────────────────────────────────
 # PAM integration so keyring auto-unlocks on login via sddm
